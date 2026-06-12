@@ -6,7 +6,6 @@
 !/Neural Network/
 !/.gitignore
 !/README.md
-!/Laser_Beam_Alignment.code-workspace
 
 # Python virtual environments
 .venv/
