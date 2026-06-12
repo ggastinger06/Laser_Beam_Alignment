@@ -1,3 +1,13 @@
+# Ignore everything at the repo root...
+/*
+
+# ...except the two project folders and repo files
+!/Moku/
+!/Neural Network/
+!/.gitignore
+!/README.md
+!/Laser_Beam_Alignment.code-workspace
+
 # Python virtual environments
 .venv/
 venv/
@@ -6,7 +16,3 @@ moku-env/
 # Python cache
 __pycache__/
 *.pyc
-
-# Installers and drivers (not project code)
-python-3.11.0-amd64.exe
-CDM-v2.12.36.20-WHQL-Certified/
