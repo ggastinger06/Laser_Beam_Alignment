@@ -15,7 +15,7 @@ plt.ion() # Makes it earier to work with the graphs
 try:
     start_time = time.time()  # record start time
     
-    osc.set_timebase(0, .001) # Define the length of data you get with respect to time (+- .01 seconds from trigger point)
+    osc.set_timebase(0,.001) #(+- .001 seconds from trigger point)
 
     last_avg = 0
 

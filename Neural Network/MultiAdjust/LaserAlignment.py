@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import tensorflow as tf128
 import random
 
 from moku.nn import LinnModel
@@ -35,7 +34,7 @@ mod_counts, corrections = generate_samples(TRAIN_SCANS, n_samples, moves, step)
 laser_mod = LinnModel()
 laser_mod.set_training_data(training_inputs=mod_counts, training_outputs=corrections)
 out_dim = corrections.shape[1]
-model_definition = [(16, 'softsign'), (16, 'softsign'), (out_dim, 'linear')]
+model_definition = [(32, 'softsign'), (32, 'softsign'), (out_dim, 'linear')]
 laser_mod.construct_model(model_definition, show_summary=True, metrics=['mae'])
 history = laser_mod.fit_model(epochs=500, es_config={'patience':25, 'restore':True}, validation_split=0.1)
 
@@ -202,5 +201,5 @@ for i, name in enumerate(direction_names):
 print(f'Step-size MAE: {step_mae:.2f}')
 
 
-#laser_mod.model.save_weights('laser.weights.h5')
-#print('Weights saved')
+laser_mod.model.save_weights('laser.weights.h5')
+print('Weights saved')

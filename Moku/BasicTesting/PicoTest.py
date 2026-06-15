@@ -110,16 +110,15 @@ else:
     """
 
     # Run an x number of steps and see how much it really runs
-    """
-    pico.send('chl a1=0')
-    pico.send('rel a1 =-50000')
-    pico.send('go a1')
-    time.sleep(50000/95)
+    pico.send('chl a2=0')
+    pico.send('rel a2 =-5000')
+    pico.send('go a2')
+    time.sleep(5000/(1*100))
+    pico.send('sto')
     print(pico.get_pos())
-    """
 
     # Right then left
-    
+    """
     pico.send('chl a1=1')
     pico.send('for a1')
     pico.send('go a1')
@@ -134,7 +133,7 @@ else:
     time.sleep(800)
     pico.send('hal')
     pico.send('pos')
-    
+    """
 
     # Run a motor for x seconds
     """
@@ -159,14 +158,14 @@ else:
     # from measured 10-box strafe times: x+ 376, x- 396, y+ 271, y- 304
     if driver == 2:
         legs = [(0, 1, 1.39),   # +X 1.39   (Put offsets in the third spot)
-                (1, 1, 1),   # +Y 1.00
+                (1, 1, 1),      # +Y 1.00
                 (0, -1, 1.46),  # -X 1.46
                 (1, -1, 1.12)]  # -Y 1.12
     elif driver == 1:
-         legs = [(0, 1, 1),   # +X 1.39   (Put offsets in the third spot)
-                (1, 1, 1),   # +Y 1.00
-                (0, -1, 1),  # -X 1.46
-                (1, -1, 1)]  # -Y 1.12
+         legs = [(0, 1, 1.84),  # +X 1.84   (Put offsets in the third spot)
+                (1, 1, 1),      # +Y 1.00
+                (0, -1, 1.53),  # -X 1.53
+                (1, -1, 1.01)]  # -Y 1.01
     base_step = 100     # step size on the first ring (keep <= beam width so it isn't skipped)
     growth = 100        # step grows this much each leg, so the spiral expands faster
     seg_len = 1         # leg lengths grow 1,1,2,2,3,3,...
@@ -191,6 +190,6 @@ else:
         if leg % 2 == 0:               # Grow the spiral every two legs
             seg_len += 1
         print('No signal - Scanning')
-    """
+    """    
 
 pico.cleanup

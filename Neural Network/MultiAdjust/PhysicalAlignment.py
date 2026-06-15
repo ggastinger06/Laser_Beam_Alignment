@@ -11,8 +11,8 @@ from XYMoveSamples import generate_samples
 from picoMotor import send, setup, move, get_pos, cleanup
 
 n_samples = 5000
-step = 50
-moves = 4 
+step = 25
+moves = 4
 
 SEED = 7 # Keep the same as Laser Alignment
 np.random.seed(SEED)
@@ -45,58 +45,61 @@ laser_mod.model.load_weights('laser.weights.h5')
 
 def read_power():
     data = osc.get_data()
-    return sum(data['ch1']) / len(data['ch1']) * 6
+    return sum(data['ch1']) / len(data['ch1']) * 6.45
 
 def look_for_signal():
-    # Square-spiral search outward from the current position until the beam is
-    # reacquired. Updates current_power and the move history (axis/direction/pwr)
-    # so the model has fresh data when control returns to the main loop.
-    global current_power, axis, direction, pwr, peak, peak_count
-
+    
     # (axis, direction, scale) - scale equalizes physical distance per direction
     # from measured 10-box strafe times: x+ 376, x- 396, y+ 271, y- 304
-    legs = [(0, 1, 1.39),   # +X 1.39
-            (1, 1, 1.00),   # +Y 1.00
-            (0, -1, 1.46),  # -X 1.46
-            (1, -1, 1.12)]  # -Y 1.12
-    base_step = 100     # step size on the first ring (keep <= beam width so it isn't skipped)
-    growth = 50        # step grows this much each leg, so the spiral expands faster
+    if driver == 2:
+        legs = [(0, 1, 1.39),   # +X 1.39   (Put offsets in the third spot)
+                (1, 1, 1),      # +Y 1.00
+                (0, -1, 1.46),  # -X 1.46
+                (1, -1, 1.12)]  # -Y 1.12
+    elif driver == 1:
+         legs = [(0, 1, 1.84),  # +X 1.84   (Put offsets in the third spot)
+                (1, 1, 1),      # +Y 1.00
+                (0, -1, 1.53),  # -X 1.53
+                (1, -1, 1.01)]  # -Y 1.01
+    base_step = 50     # step size on the first ring (keep <= beam width so it isn't skipped)
+    growth = 25        # step grows this much each leg, so the spiral expands faster
     seg_len = 1         # leg lengths grow 1,1,2,2,3,3,...
     leg = 0
     velocity = 1000
-    send(f'vel a1 0={velocity}') 
-    send(f'vel a1 1={velocity}') 
-    peak = 0
-    peak_count = 0
+    send(f'vel a{driver} 0={velocity}')
+    send(f'vel a{driver} 1={velocity}')
 
-    while current_power < .01: # Need at least .01 mW
+    while True:
 
         move_axis, move_dir, scale = legs[leg % 4]
         search_step = int((base_step + growth * leg) * scale)   # scaled so each direction covers equal distance
 
         for _ in range(seg_len):
-            # Record this move + the power before it, newest in slot [0]
-            axis = [move_axis, axis[0], axis[1], axis[2]]
-            direction = [move_dir,  direction[0], direction[1], direction[2]]
-            pwr = [current_power, pwr[0], pwr[1], pwr[2]]
+
+            search_power = read_power()
+            # Plot the spiral scan
+            """
+            Xmoves.append(pos[0])
+            Ymoves.append(pos[1])
+            Pmoves.append(search_power)
+            plot_path()
+            """
+
+            # Check before each move so a beam crossing isn't skipped mid-leg.
+            if search_power >= .01:   # Found the beam
+                velocity = 100
+                send(f'vel a{driver} 0={velocity}')
+                send(f'vel a{driver} 1={velocity}')
+                xy_start()
+                reset()
+                return
 
             move(move_axis, move_dir, search_step, velocity, driver)
-            current_power = read_power()
-
-            if current_power >= .005:   # Found the beam
-                velocity = 100
-                send(f'vel a1 0={velocity}') 
-                send(f'vel a1 1={velocity}') 
-                return
 
         leg += 1
         if leg % 2 == 0:               # Grow the spiral every two legs
             seg_len += 1
         print('No signal - Scanning')
-
-def joystick_for_signal():
-    send('mof')
-    send('jon')
 
 def plot_path():
     X = np.array(Xmoves, dtype=float)
@@ -144,7 +147,6 @@ def reset():
     Pmoves = []
 
 try:
-
     velocity = 100
     setup(velocity)
 
@@ -153,12 +155,17 @@ try:
     driver = 1
     xy_start()
     reset()
+
     peak = 0
-    peak_count = 0
 
     plt.ion()   # interactive mode so the plot updates live without blocking moves
 
     while True: # Run the model and make the resulting moves
+
+        if driver == 2:
+            ratio = [1.39, 1.00, 1.46, 1.12] # [+X, +Y, -X, -Y]
+        elif driver == 1:
+            ratio = [1.84, 1.00, 1.53, 1.01] # [+X, +Y, -X, -Y]
         
         current_power = read_power()
         time.sleep(.1)
@@ -177,10 +184,10 @@ try:
         axis[3], direction[3], pwr[3],   # 4 moves ago
         ]])
 
-        result = laser_mod.predict(move_set, scale=True, unscale_output=True)[0]  # result = [0,1],[0,-1],[1,0], or [-1,0] 
+        result = laser_mod.predict(move_set, scale=True, unscale_output=True)[0] 
 
-        # Figure out what axis and direction the move was
-        step = (int)(result[1]) # Step = the second part of the result
+        # Step = the second part of the result
+        step = round(result[1])
 
         # Alternate the axis from the last move
         if axis[0] == 0:
@@ -188,6 +195,7 @@ try:
         else:
             move_axis = 0
         move_dir = 1 if result[0] > 0 else -1
+
         if move_axis == 0:
             pos[0] += step * move_dir
             print(f'The next move will be in the {"+X" if move_dir > 0 else "-X"} direction')
@@ -199,30 +207,32 @@ try:
 
         # Shift history back one slot, the most recent move goes into [0]
         axis =      [move_axis,     axis[0],      axis[1],      axis[2]]
-        direction = [move_dir,      direction[0], direction[1], direction[2]] 
+        direction = [move_dir,      direction[0], direction[1], direction[2]]
         pwr =       [current_power, pwr[0],       pwr[1],       pwr[2]]
 
-        print(f'Amount of moves without reaching the max power of {peak:.2f}: {peak_count}')  
         # If it doesn't find a new max, get back to the max
-        if peak_count >= 5 and current_power >= peak*.98:
+        
+        if (((max(pwr) - min(pwr)) <= .025*peak) and (min(pwr) > .1) or (len(Xmoves) > 50)):
             if driver == 1: driver = 2
             else: driver = 1 
-            print(f'CENTER REACHED - PLEASE MOVE THE METER TO IRIS {driver}')
+            print(f'CENTER REACHED IN {len(Xmoves)} MOVES, PLEASE MOVE THE METER TO IRIS {driver}')
             time.sleep(10)
             xy_start()
             reset()
-            peak = 0
-            peak_count = 0
             continue
 
         if current_power > peak:
             peak = current_power
-            peak_count = 0
-        else:
-            peak_count += 1
+        print(f'The peak power so far is {peak:.2f}')
 
         if max(pwr) < .01:
-            look_for_signal()
+            look_for_signal()   
+
+        # This block normalizes the steps based on their known offsets
+        if   move_axis == 0 and move_dir == 1:  step = (int)(step*ratio[0])
+        elif move_axis == 1 and move_dir == 1:  step = (int)(step*ratio[1])
+        elif move_axis == 0 and move_dir == -1: step = (int)(step*ratio[2])
+        elif move_axis == 1 and move_dir == -1: step = (int)(step*ratio[3])
 
         move(move_axis, move_dir, step, velocity, driver) # 1 for first mirror, 2 for second mirror
 

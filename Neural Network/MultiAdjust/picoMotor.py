@@ -43,7 +43,7 @@ def move(axis, direction, step, velocity, driver):
     if driver == 2: send(f'rel a{driver} ={-step*direction}')
     else:           send(f'rel a{driver} ={step*direction}')
     send('go')
-    time.sleep(abs(step)/(velocity*.95))
+    time.sleep(abs(step)/(velocity))
 
 def get_pos():
     while True:

@@ -149,6 +149,12 @@ def _generate_from_scan(npz_path, n_samples, moves, step, min_power_frac=0.005,
 
     # -------------------------------- Build the model rows from each spawn --------------------------------
 
+    # The actual beam peak in this scan. Every sample's power readings are
+    # rescaled so its effective max power is a random value in [0.5, 5]. This
+    # stops the model from keying off an absolute power level and lets it work
+    # with almost any peak power at deployment time.
+    peak_power = float(power[peak])
+
     mod_counts = np.zeros((n_total, 1 + moves * 3))  # Last data measurements and current power
     corrections = np.zeros((n_total, 2))             # Positive or negative direction
 
@@ -156,7 +162,12 @@ def _generate_from_scan(npz_path, n_samples, moves, step, min_power_frac=0.005,
 
         x = int(spawn_x[i])
         y = int(spawn_y[i])
-        current = get_power(x, y)
+
+        # Per-sample random max power: scale all readings so this scan's peak
+        # maps to a value drawn uniformly from [0.5, 5].
+        power_scale = random.uniform(0.5, 5.0) / peak_power
+
+        current = get_power(x, y) * power_scale
 
         axis = []
         direction = []
@@ -187,7 +198,7 @@ def _generate_from_scan(npz_path, n_samples, moves, step, min_power_frac=0.005,
 
             axis.append(temp_axis)
             direction.append(temp_dir)
-            pwr.append(get_power(xp, yp))  # power at that earlier position
+            pwr.append(get_power(xp, yp) * power_scale)  # power at that earlier position
 
         row = [current]                          # current power state
         for j in range(moves):                   # (j+1) moves ago
@@ -196,17 +207,19 @@ def _generate_from_scan(npz_path, n_samples, moves, step, min_power_frac=0.005,
 
         # clockwise
 
-        if axis[0] == 0: # Last move
-            test_powers= [get_power(x, y + step), get_power(x, y - step)] # If last was X, move Y
-            steps = abs(y)/5
-        else:
-            test_powers= [get_power(x + step, y), get_power(x - step, y)] # If last was Y, move X
-            steps = abs(x)/5
+        # Last move
+        if axis[0] == 0: # This move is Y
+            steps = abs(y)/4
+        else: # This move is X
+            steps = abs(x)/4
         corrections[i][1] = steps
 
-        if max(test_powers) == test_powers[0]: # If direction is positive
+        # Direction toward center (0,0) along THIS move's axis.
+        coord = y if axis[0] == 0 else x
+        if coord < 0:   # need to move + to reach center
             corrections[i][0] = 1
-        elif max(test_powers) == test_powers[1]: # If direction is negative
+        elif coord > 0: # need to move - to reach center
             corrections[i][0] = -1
+
 
     return mod_counts, corrections
