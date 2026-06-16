@@ -11,8 +11,15 @@ import random
 from scipy.interpolate import LinearNDInterpolator
 from tqdm import tqdm
 
+# Range of beam peak powers (mW, as read by read_power) the model is trained to
+# handle. Each training sample's scan is rescaled to a hypothetical real beam
+# peaking log-uniformly within this band, so any deployment peak in [PEAK_MIN,
+# PEAK_MAX] is in-distribution. Readings stay true mW -- nothing is normalized.
+PEAK_MIN = 0.5
+PEAK_MAX = 5.0
+
 # min_power_frac defines the boundary that the random points can spawn in
-def generate_samples(npz_paths, n_samples, moves, step, min_power_frac=0.005,
+def generate_samples(npz_paths, n_samples, moves, min_power_frac=0.005,
                      bin_width=0.01, pool_size=None, verbose=True):
     """Generate training rows from one or more beam scans.
 
@@ -32,7 +39,7 @@ def generate_samples(npz_paths, n_samples, moves, step, min_power_frac=0.005,
         if verbose:
             print(f'--- {per_scan} samples from {path} ---')
         counts, corr = _generate_from_scan(
-            path, per_scan, moves, step, min_power_frac=min_power_frac,
+            path, per_scan, moves, min_power_frac=min_power_frac,
             bin_width=bin_width, pool_size=pool_size, verbose=verbose,
         )
         all_counts.append(counts)
@@ -45,7 +52,7 @@ def generate_samples(npz_paths, n_samples, moves, step, min_power_frac=0.005,
     return mod_counts[order], corrections[order]
 
 
-def _generate_from_scan(npz_path, n_samples, moves, step, min_power_frac=0.005,
+def _generate_from_scan(npz_path, n_samples, moves, min_power_frac=0.005,
                         bin_width=0.01, pool_size=None, verbose=True):
 
     with np.load(npz_path) as data:
@@ -164,8 +171,14 @@ def _generate_from_scan(npz_path, n_samples, moves, step, min_power_frac=0.005,
         y = int(spawn_y[i])
 
         # Per-sample random max power: scale all readings so this scan's peak
-        # maps to a value drawn uniformly from [0.5, 5].
-        power_scale = random.uniform(0.5, 5.0) / peak_power
+        # maps to a hypothetical real beam peaking somewhere in [PEAK_MIN, PEAK_MAX]
+        # mW. Sampling log-uniformly spreads the synthetic peaks evenly across the
+        # range (rather than clustering near the top), so the network sees genuine
+        # power values at every brightness it will meet at deployment and never has
+        # to extrapolate. Readings stay true mW on both sides -- deployment feeds
+        # raw read_power() unchanged.
+        target_peak = 10 ** random.uniform(np.log10(PEAK_MIN), np.log10(PEAK_MAX))
+        power_scale = target_peak / peak_power
 
         current = get_power(x, y) * power_scale
 

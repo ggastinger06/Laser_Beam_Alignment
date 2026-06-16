@@ -11,7 +11,6 @@ from XYMoveSamples import generate_samples
 from picoMotor import send, setup, move, get_pos, cleanup
 
 n_samples = 5000
-step = 25
 moves = 4
 
 SEED = 7 # Keep the same as Laser Alignment
@@ -32,7 +31,7 @@ TRAIN_SCANS = [
     r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris2.1.npz',
     r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_att.npz',
 ]
-mod_counts, corrections = generate_samples(TRAIN_SCANS, n_samples, moves, step)
+mod_counts, corrections = generate_samples(TRAIN_SCANS, n_samples, moves)
 
 laser_mod = LinnModel()
 out_dim = corrections.shape[1]
@@ -101,6 +100,40 @@ def look_for_signal():
             seg_len += 1
         print('No signal - Scanning')
 
+def fine_tune():
+    step = 32
+    axis = 0
+    while step >= 4:
+        peak = read_power()
+
+        # Check + 1 and keep it if it improves, else undo it and search - 1
+        move(axis, 1, step, velocity, driver)
+        time.sleep(.1)
+        cur_power = read_power()
+        if cur_power > peak:
+            bearing = 1
+            peak = cur_power
+        else:
+            move(axis, -1, step, velocity, driver) # Undo bad move
+            bearing = -1
+
+        while True:
+            move(axis, bearing, step, velocity, driver)
+            time.sleep(.1)
+            cur_power = read_power()
+            if cur_power > peak:
+                peak = cur_power # New peak
+            else:
+                move(axis, -bearing, step, velocity, driver)
+                break
+
+        # Switch axis each round, halve the step after both axes are done
+        if axis == 0:
+            axis = 1
+        else:
+            axis = 0
+            step //= 2
+
 def plot_path():
     X = np.array(Xmoves, dtype=float)
     Y = np.array(Ymoves, dtype=float)
@@ -123,7 +156,7 @@ def plot_path():
     plt.savefig('LaserMovement.png', dpi=150, bbox_inches='tight')
 
 def xy_start():
-    # 2 moves and data to start with
+    # 4 moves and data to start with
     global axis, direction, pwr
     axis = [1,0,1,0]
     direction = [1,1,-1,-1]
@@ -131,7 +164,7 @@ def xy_start():
 
     for i in range(moves):
         pwr.append(read_power())
-        move(axis[i], direction[i], step, velocity, driver)
+        move(axis[i], direction[i], 50, velocity, driver)
 
     # Reverse so slot [0] = most recent move 
     axis      = axis[::-1]
@@ -213,6 +246,7 @@ try:
         # If it doesn't find a new max, get back to the max
         
         if (((max(pwr) - min(pwr)) <= .025*peak) and (min(pwr) > .1) or (len(Xmoves) > 50)):
+            fine_tune()
             if driver == 1: driver = 2
             else: driver = 1 
             print(f'CENTER REACHED IN {len(Xmoves)} MOVES, PLEASE MOVE THE METER TO IRIS {driver}')

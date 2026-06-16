@@ -7,7 +7,6 @@ from XYMoveSamples import generate_samples
 
 # Amount of random cursors to simulate with
 n_samples = 5000
-step = 25
 moves = 4 # Length of the move history
 
 # Seed both RNGs so the training data is reproducible. Must match the SEED in PhysicalAlignment.py.
@@ -27,7 +26,7 @@ TRAIN_SCANS = [
     r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris2.1.npz',
     r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_att.npz',
 ]
-mod_counts, corrections = generate_samples(TRAIN_SCANS, n_samples, moves, step)
+mod_counts, corrections = generate_samples(TRAIN_SCANS, n_samples, moves)
 
 # -----------------------------------------------------------TRAINING--------------------------------------------------------
 #optimizer = tf128.keras.optimizers.Adam(learning_rate=.005)
@@ -73,7 +72,7 @@ plt.show()
 # Test on a different beam scan to gauge generalization
 mod_counts, corrections = generate_samples(
     r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris1.0.npz',
-    n_samples, moves, step,
+    n_samples, moves
 )
 
 preds = laser_mod.predict(mod_counts, scale=True, unscale_output=True) # The golden line
