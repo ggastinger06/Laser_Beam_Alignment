@@ -16,7 +16,7 @@ from tqdm import tqdm
 # peaking log-uniformly within this band, so any deployment peak in [PEAK_MIN,
 # PEAK_MAX] is in-distribution. Readings stay true mW -- nothing is normalized.
 PEAK_MIN = 0.5
-PEAK_MAX = 5.0
+PEAK_MAX = 3.0
 
 # min_power_frac defines the boundary that the random points can spawn in
 def generate_samples(npz_paths, n_samples, moves, min_power_frac=0.005,
@@ -222,9 +222,9 @@ def _generate_from_scan(npz_path, n_samples, moves, min_power_frac=0.005,
 
         # Last move
         if axis[0] == 0: # This move is Y
-            steps = abs(y)/4
+            steps = abs(y)/3
         else: # This move is X
-            steps = abs(x)/4
+            steps = abs(x)/3
         corrections[i][1] = steps
 
         # Direction toward center (0,0) along THIS move's axis.

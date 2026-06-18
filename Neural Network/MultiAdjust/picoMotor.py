@@ -10,10 +10,9 @@ ser = serial.Serial(  # This sets up the serial communication
     timeout=1
 )
 
-def send(cmd, timeout=2.0): # Waits for a response to move on
+def send(cmd, timeout=2.0):
     ser.reset_input_buffer()
     ser.write((cmd + '\r').encode())
-
     buf = b''
     deadline = time.time() + timeout
     while time.time() < deadline:

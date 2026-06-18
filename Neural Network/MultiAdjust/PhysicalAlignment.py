@@ -1,6 +1,7 @@
 from moku.instruments import Oscilloscope
 
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import time
 
 from moku.nn import LinnModel
@@ -44,7 +45,7 @@ laser_mod.model.load_weights('laser.weights.h5')
 
 def read_power():
     data = osc.get_data()
-    return sum(data['ch1']) / len(data['ch1']) * 6.45
+    return sum(data['ch1']) / len(data['ch1']) * 6.455
 
 def look_for_signal():
     
@@ -56,7 +57,7 @@ def look_for_signal():
                 (0, -1, 1.46),  # -X 1.46
                 (1, -1, 1.12)]  # -Y 1.12
     elif driver == 1:
-         legs = [(0, 1, 1.84),  # +X 1.84   (Put offsets in the third spot)
+         legs = [(0, 1, 1.64),  # +X 1.84   (Put offsets in the third spot)
                 (1, 1, 1),      # +Y 1.00
                 (0, -1, 1.53),  # -X 1.53
                 (1, -1, 1.01)]  # -Y 1.01
@@ -101,9 +102,9 @@ def look_for_signal():
         print('No signal - Scanning')
 
 def fine_tune():
-    step = 32
+    step = 30
     axis = 0
-    while step >= 4:
+    while step >= 15:
         peak = read_power()
 
         # Check + 1 and keep it if it improves, else undo it and search - 1
@@ -155,16 +156,100 @@ def plot_path():
     ax.set_title('Laser beam path')
     plt.savefig('LaserMovement.png', dpi=150, bbox_inches='tight')
 
+def plot_iris_power():
+    # Per alignment cycle, show the beam power at three stages as a pair of
+    # arrows:  start --(orange)--> model --(maroon)--> tuned
+    #   start = before the model scan begins
+    #   model = after the model converges, before fine-tuning  (iris*end)
+    #   tuned = after fine_tune() peaks it
+    # Iris 1 and iris 2 get their own panel since they sit at different powers.
+    # Both arrows share the cycle's x and are drawn translucent so you can see
+    # both where they overlap. An arrow whose change is smaller than its own head
+    # is dropped (just the dash is shown) so tiny moves aren't all-head stubs.
+    # A dotted gray line marks each iris's max power reached.
+    GRAY, ORANGE, MAROON = '#75787B', '#E87722', '#861F41'   # Virginia Tech
+    HALF, MUT, LW, ALPHA = 0.13, 15, 2.6, 0.6
+    HEAD_FRAC = 0.4   # '-|>' head length = HEAD_FRAC * mutation_scale (points)
+
+    prev = plt.gcf().number if plt.get_fignums() else None   # restore later so
+    fig = plt.figure('iris_power')                           # plot_path()'s
+    fig.clf()                                                # current-figure
+    axes = fig.subplots(1, 2)                                # isn't redirected
+
+    # last field = how many leading cycles to skip
+    panels = (('Iris 1', iris1start, iris1end, iris1tuned, 0),
+              ('Iris 2', iris2start, iris2end, iris2tuned, 0))
+
+    # Pass 1: dots + dashes (centred on the cycle's x) + dotted max line.
+    for ax, (name, s, m, t, skip) in zip(axes, panels):
+        ks = list(range(skip, min(len(s), len(m), len(t))))   # cycles to plot
+        ys = []
+        for i, k in enumerate(ks):
+            x = i + 1
+            ax.plot(x, s[k], 'o', color=GRAY, ms=9, zorder=5)            # start
+            ax.plot([x - HALF, x + HALF], [m[k], m[k]], color=ORANGE,    # model
+                    lw=4, solid_capstyle='round', zorder=3)
+            ax.plot([x - HALF, x + HALF], [t[k], t[k]], color=MAROON,    # tuned
+                    lw=4, solid_capstyle='round', zorder=3)
+            ys += [s[k], m[k], t[k]]
+        if ys:
+            ax.axhline(max(ys), ls=':', color='gray', lw=1, zorder=1)    # max
+        ax.set_title(name)
+        ax.set_xlabel('Iteration')
+        ax.set_ylabel('Power (mW)')
+        ax.grid(alpha=.3)
+        if ks:
+            ax.set_xticks(range(1, len(ks) + 1))
+
+    legend = [Line2D([], [], ls='', marker='o', color=GRAY, ms=9, label='Start'),
+              Line2D([], [], color=ORANGE, lw=4, label='Neural Network'),
+              Line2D([], [], color=MAROON, lw=4, label='Fine Tune')]
+    fig.legend(handles=legend, loc='upper center', ncol=3, frameon=True,
+               bbox_to_anchor=(0.5, 0.92))   # key above the panels, out of the way
+
+    fig.suptitle('Iris Power During Alignment', y=0.99)
+    fig.tight_layout(rect=(0, 0, 1, 0.86))
+    fig.canvas.draw()   # finalize transforms (axis sizes) before sizing arrows
+
+    # Pass 2: translucent overlapping arrows, skipped when the change is shorter
+    # than the arrow head. Convert the head length from points to data units per
+    # panel, since the two panels span very different power ranges.
+    head_px = HEAD_FRAC * MUT * fig.dpi / 72.0
+    for ax, (name, s, m, t, skip) in zip(axes, panels):
+        inv = ax.transData.inverted()
+        head_data = abs(inv.transform((0, head_px))[1] - inv.transform((0, 0))[1])
+        ks = list(range(skip, min(len(s), len(m), len(t))))
+        for i, k in enumerate(ks):
+            x = i + 1
+            if abs(m[k] - s[k]) >= head_data:   # start -> model (orange)
+                ax.annotate('', xy=(x, m[k]), xytext=(x, s[k]),
+                            arrowprops=dict(arrowstyle='-|>', color=ORANGE, lw=LW,
+                                            mutation_scale=MUT, shrinkA=0, shrinkB=0,
+                                            alpha=ALPHA), zorder=4)
+            if abs(t[k] - m[k]) >= head_data:   # model -> tuned (maroon)
+                ax.annotate('', xy=(x, t[k]), xytext=(x, m[k]),
+                            arrowprops=dict(arrowstyle='-|>', color=MAROON, lw=LW,
+                                            mutation_scale=MUT, shrinkA=0, shrinkB=0,
+                                            alpha=ALPHA), zorder=4)
+
+    fig.savefig('IrisPower.png', dpi=150, bbox_inches='tight')
+    if prev is not None:
+        plt.figure(prev)
+
 def xy_start():
     # 4 moves and data to start with
     global axis, direction, pwr
-    axis = [1,0,1,0]
+    axis = [0,1,0,1]
     direction = [1,1,-1,-1]
     pwr = []
+    if driver == 1:
+        steps = [1.84, 1.00, 1.53, 1.01] # [+X, +Y, -X, -Y]
+    elif driver == 2:
+        steps = [1.39, 1.00, 1.46, 1.12] # [+X, +Y, -X, -Y]
 
     for i in range(moves):
         pwr.append(read_power())
-        move(axis[i], direction[i], 50, velocity, driver)
+        move(axis[i], direction[i], (int)(steps[i]*25), velocity, driver)
 
     # Reverse so slot [0] = most recent move 
     axis      = axis[::-1]
@@ -191,14 +276,21 @@ try:
 
     peak = 0
 
+    iris1start = [read_power()]
+    iris1end = []
+    iris1tuned = []
+    iris2start = []
+    iris2end = []
+    iris2tuned = []
+
     plt.ion()   # interactive mode so the plot updates live without blocking moves
 
     while True: # Run the model and make the resulting moves
 
-        if driver == 2:
-            ratio = [1.39, 1.00, 1.46, 1.12] # [+X, +Y, -X, -Y]
-        elif driver == 1:
+        if driver == 1:
             ratio = [1.84, 1.00, 1.53, 1.01] # [+X, +Y, -X, -Y]
+        elif driver == 2:
+            ratio = [1.39, 1.00, 1.46, 1.12] # [+X, +Y, -X, -Y]
         
         current_power = read_power()
         time.sleep(.1)
@@ -245,12 +337,28 @@ try:
 
         # If it doesn't find a new max, get back to the max
         
-        if (((max(pwr) - min(pwr)) <= .025*peak) and (min(pwr) > .1) or (len(Xmoves) > 50)):
+        if (((max(pwr) - min(pwr)) <= .04*peak) and (min(pwr) > .1) or (len(Xmoves) > 50)): # Change power meter condition
+
+            if driver == 1: iris1end.append(read_power())
+            else: iris2end.append(read_power())
+
             fine_tune()
-            if driver == 1: driver = 2
-            else: driver = 1 
+
+            if driver == 1:
+                iris1tuned.append(read_power())
+                driver = 2
+            else:
+                iris2tuned.append(read_power())
+                driver = 1
+
             print(f'CENTER REACHED IN {len(Xmoves)} MOVES, PLEASE MOVE THE METER TO IRIS {driver}')
             time.sleep(10)
+
+            if driver == 1: iris1start.append(read_power())
+            else: iris2start.append(read_power())
+
+            plot_iris_power()
+
             xy_start()
             reset()
             continue

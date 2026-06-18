@@ -110,12 +110,14 @@ else:
     """
 
     # Run an x number of steps and see how much it really runs
+    """
     pico.send('chl a2=0')
     pico.send('rel a2 =-5000')
     pico.send('go a2')
     time.sleep(5000/(1*100))
     pico.send('sto')
     print(pico.get_pos())
+    """
 
     # Right then left
     """
