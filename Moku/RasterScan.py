@@ -1,6 +1,12 @@
-# This is starting with the mirror pointed towards the bottom left corner
-# The idea of this code is to get training data to test the neural network
-# The laser must start in the center of the iris
+"""Raster-scan the laser across an iris to collect training data.
+
+Drives the picomotors in a back-and-forth raster while reading beam power off the
+Moku oscilloscope, building an (x, y, power) map. Start with the laser centered on
+the iris and the mirror pointed at the bottom-left corner. Saves a live contour
+plot (Contourf.png) and, when finished, the scan to an .npz the neural network
+trains on. Press Ctrl+C to stop early.
+"""
+
 from moku.instruments import Oscilloscope
 
 import matplotlib
@@ -10,23 +16,42 @@ from matplotlib import cm
 import numpy as np
 from scipy.interpolate import griddata
 
+import os
 import sys
-sys.path.append(r'c:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust')
-import picoMotor as pico 
+# picoMotor lives in the sibling Neural Network project; add it to the path relative to this file
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             '..', 'Neural Network', 'MultiAdjust'))
+import picoMotor as pico
 
 import time
+
+# ============================== USER SETTINGS ==============================
+OSC_IP = '192.168.73.1'        # Moku IP address
+SETUP_VELOCITY = 100           # motor velocity for the scan
+TIMEBASE = 0.01                # oscilloscope window (seconds around the trigger)
+OUTPUT_FILE = 'scan_data_iris2.1.npz'   # where the finished scan is saved
+
+# Scan geometry
+length = 1200
+height = 1200
+lines = 30        # higher number for finer data
+Lfactor = 1.18    # increase if scan shifts left (left steps per right step)
+Ufactor = .85     # increase if the plot isn't elliptical enough (up steps per right step)
+Dfactor = 1.25    # increase if the plot starts too low (down steps per right step)
+iris = 2          # which iris/mirror to scan
+# ===========================================================================
 
 
 def plot():
     plt.clf()
-    plt.scatter(x_scan, y_scan, s=power)  # s= size of the point
+    plt.scatter(x_scan, y_scan, s=power)   # s = size of the point
     plt.xlabel('X-steps')
     plt.ylabel('Y-steps')
     plt.title('Laser beam power based on location')
     plt.savefig('RasterScan.png', dpi=150, bbox_inches='tight')
 
 def contourf_plot():
-    plt.close('all')                    # close all existing figures
+    plt.close('all')   # close all existing figures
     fig, ax = plt.subplots()
 
     xi = np.linspace(min(x_scan), max(x_scan), 200)
@@ -44,25 +69,15 @@ def contourf_plot():
     plt.close(fig)
 
 def save_data():
-    np.savez('scan_data_iris2.1.npz',
+    np.savez(OUTPUT_FILE,
              x_scan=np.array(x_scan),
              y_scan=np.array(y_scan),
              power=np.array(power))
-    print(f'Saved {len(power)} data points to scan_data_iris2.1.npz')
+    print(f'Saved {len(power)} data points to {OUTPUT_FILE}')
 
-osc = Oscilloscope('192.168.73.1', force_connect=True) #IP Address
+osc = Oscilloscope(OSC_IP, force_connect=True)
 
-# Setup
-pico.setup(100)         
-
-# Edit these for scan size
-length = 1200
-height = 1200
-lines = 30 # Higher number for finer data
-Lfactor = 1.18 # Increase this if scan shifts left (Amount of left steps for each right step)
-Ufactor = .85  # Increase if the plot isn't elliptical enough (Amount of up steps for each right step)
-Dfactor = 1.25  # Increase this if the plot starts too low (Amount of down steps for each right step)
-iris = 2
+pico.setup(SETUP_VELOCITY)
 
 if iris == 2:
     length = -length
@@ -88,9 +103,9 @@ time.sleep(((Lfactor*abs(length))/1.75)/95)
 
 try:
 
-    osc.set_timebase(0, 0.01) # Define the length of data you get with respect to time (+- .001 seconds from trigger point)
+    osc.set_timebase(0, TIMEBASE)
 
-    while True: # Continuously read and print data from input 1
+    while True:   # continuously read and print data from input 1
 
         pos = 0
         pico.send(f'chl a{iris}=0')
@@ -99,23 +114,22 @@ try:
 
         while (pos < abs(length)):
             pos = -pico.get_pos()
-            #print(pos)
 
             data = osc.get_data()
             avg = sum(data['ch1'])/len(data['ch1'])
 
-            power.append(avg*6.45) # Analog input x6.455 for Watts
+            power.append(avg*6.45)   # analog input x6.455 for Watts
             x_scan.append(pos)
             y_scan.append(y_steps)
 
-        if len(np.unique(y_scan)) > 1: # Countour can't plot with one line of data
+        if len(np.unique(y_scan)) > 1:   # contour can't plot with one line of data
             contourf_plot()
 
         # Return to start
         pico.send(f'vel a{iris} 0=1000')
         pico.send(f'rel a{iris} ={(int)(-length*Lfactor)}')
         pico.send('go')
-        time.sleep((abs(length)*Lfactor)/950) # Divide steps by a little less than velocity for correct delay
+        time.sleep((abs(length)*Lfactor)/950)   # steps / (a little less than velocity) for the delay
         pico.send(f'vel a{iris} 0=100')
 
         # Go up
@@ -125,7 +139,7 @@ try:
         time.sleep(((Ufactor*height)/lines)/95)
         y_steps += height/lines
 
-        time.sleep(.5) #Let the motor cool down so there isn't as much drift
+        time.sleep(.5)   # let the motor cool down so there isn't as much drift
 
         if y_steps > height:
             pico.cleanup()
@@ -133,7 +147,7 @@ try:
             save_data()
             break
 
-except KeyboardInterrupt: #Ctrl C to end
+except KeyboardInterrupt:   # Ctrl+C to end
     print('Scan interrupted')
-    osc.relinquish_ownership() # Make sure to relinquish or it will be hard to connect next time
+    osc.relinquish_ownership()   # always relinquish or the next connection is hard
     pico.cleanup()

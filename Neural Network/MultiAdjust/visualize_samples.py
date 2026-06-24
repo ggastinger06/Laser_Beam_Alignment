@@ -1,21 +1,19 @@
-"""Quick visualizer for the forward-walk training samples.
+"""Quick visualizer for the training samples.
 
-Reproduces the per-sample forward walk from XYMoveSamples._generate_from_scan
-(same toward-center formulas) but also records the cursor positions, so each
-sample's move history can be drawn on top of the beam heatmap. Prints the
-encoded model row for each sample too.
-
-Set BALANCED = True to draw spawns with the same equal-samples-per-power-level
-quota the trainer uses (so the displayed distribution matches training); set it
-False for a simple dim->bright spread.
+Reproduces the per-sample walk from XYMoveSamples and draws each sample's move
+history on top of the beam heatmap, printing the encoded model row too. Set
+BALANCED = True to match the trainer's equal-samples-per-power-level quota.
 """
 
+import os
 import numpy as np
 import random
 import matplotlib.pyplot as plt
 from scipy.interpolate import LinearNDInterpolator
 
-SCAN = r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris1.2.npz'
+# ============================== USER SETTINGS ==============================
+DATA_DIR = os.path.dirname(os.path.abspath(__file__))   # this script's folder
+SCAN = os.path.join(DATA_DIR, 'scan_data_iris1.2.npz')
 MOVES = 4
 N_SHOW = 6              # trajectories to draw
 N_SAMPLES = 2000       # quota target, used when BALANCED (matches a training run)
@@ -24,6 +22,7 @@ PEAK_MIN, PEAK_MAX = 0.5, 3.0
 MIN_POWER_FRAC = 0.005
 BALANCED = True
 SEED = 7
+# ===========================================================================
 
 random.seed(SEED)
 np.random.seed(SEED)
@@ -55,10 +54,8 @@ HEAT = interp(np.column_stack([GY.ravel(), GX.ravel()])).reshape(GX.shape)
 
 
 def balanced_spawns(n_samples, bin_width=BIN_WIDTH, pool_size=None):
-    """Mirror of the equal-samples-per-power-level selection in XYMoveSamples.
-
-    Returns spawn x, y, and the (raw, unscaled) power at each spawn.
-    """
+    # Mirror of the equal-samples-per-power-level selection in XYMoveSamples;
+    # returns spawn x, y, and the raw (unscaled) power at each spawn.
     if pool_size is None:
         pool_size = max(200_000, 80 * n_samples)
 
@@ -200,7 +197,7 @@ for n, (sx, sy) in enumerate(spawns):
 fig.suptitle(f'Forward-walk samples [{sel_label}]  black=spawn  red star=current  '
              'white=move history  red dashed=correction', fontsize=12)
 fig.tight_layout(rect=(0, 0, 1, 0.96))
-OUT = r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\sample_visualization.png'
+OUT = os.path.join(DATA_DIR, 'sample_visualization.png')
 fig.savefig(OUT, dpi=130, bbox_inches='tight')
 print(f'Saved trajectories -> {OUT}')
 
@@ -222,7 +219,7 @@ fig2.suptitle('Power distribution: balanced flat at the start, pulled toward the
               'converging walk\n(model additionally scales each sample by a random peak in '
               f'[{PEAK_MIN}, {PEAK_MAX}] mW)', fontsize=11)
 fig2.tight_layout(rect=(0, 0, 1, 0.93))
-OUT2 = r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\sample_distribution.png'
+OUT2 = os.path.join(DATA_DIR, 'sample_distribution.png')
 fig2.savefig(OUT2, dpi=130, bbox_inches='tight')
 print(f'Saved distribution -> {OUT2}')
 print(f'\nSpawn power : min {spawn_pw.min():.3f}  max {spawn_pw.max():.3f}  mean {spawn_pw.mean():.3f}')

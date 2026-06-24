@@ -1,3 +1,11 @@
+"""Train the laser-alignment model on simulated beam scans and save its weights.
+
+Run this once to produce laser.weights.h5, which PhysicalAlignment.py then loads
+to drive the picomotors. Saves two diagnostic plots: loss_and_mae.png and
+direction_accuracy.png.
+"""
+
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import random
@@ -5,59 +13,61 @@ import random
 from moku.nn import LinnModel
 from XYMoveSamples import generate_samples
 
-# Amount of random cursors to simulate with
-n_samples = 20000
-moves = 4 # Length of the move history
+# ============================== USER SETTINGS ==============================
+n_samples = 20000   # number of random cursors to simulate
+moves = 4           # length of the move history fed to the model
 
-# Seed both RNGs so the training data is reproducible. Must match the SEED in PhysicalAlignment.py.
-SEED = 7
+SEED = 7            # seeds both RNGs for reproducibility; MUST match PhysicalAlignment.py
+DATA_DIR = os.path.dirname(os.path.abspath(__file__))   # this script's folder; scans live alongside it
+
+# Training scans: n_samples is split evenly across them. Add/remove freely, but
+# this list MUST match TRAIN_SCANS in PhysicalAlignment.py so the scaling agrees.
+TRAIN_SCANS = [
+    os.path.join(DATA_DIR, 'scan_data_iris1.1.npz'),
+    os.path.join(DATA_DIR, 'scan_data_iris1.2.npz'),
+    os.path.join(DATA_DIR, 'scan_data_iris2.0.npz'),
+    os.path.join(DATA_DIR, 'scan_data_iris2.1.npz'),
+    os.path.join(DATA_DIR, 'scan_data_att.npz'),
+]
+TEST_SCAN = os.path.join(DATA_DIR, 'scan_data_iris1.0.npz')   # held-out scan, to gauge generalization
+
+EPOCHS = 500
+MODEL_DEFINITION = [(32, 'softsign'), (32, 'softsign')]   # output layer is appended below
+WEIGHTS_OUT = 'laser.weights.h5' # Name for weights file
+# ===========================================================================
+
 np.random.seed(SEED)
 random.seed(SEED)
 
-# ----------------------------------Generate/import training data here----------------------------------------------------------
-
-# Training data: equal numbers of simulated situations from each listed scan.
-# Add or remove scans freely; n_samples is split evenly across them.
-# Must match TRAIN_SCANS in PhysicalAlignment.py so the model scaling agrees.
-TRAIN_SCANS = [
-    r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris1.1.npz',
-    r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris1.2.npz',
-    r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris2.0.npz',
-    r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris2.1.npz',
-    r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_att.npz',
-]
+# ---------------------------------- Training data ----------------------------------
 inputs, corrections = generate_samples(TRAIN_SCANS, n_samples, moves)
 
-# -----------------------------------------------------------TRAINING--------------------------------------------------------
-#optimizer = tf128.keras.optimizers.Adam(learning_rate=.005)
+# ---------------------------------- Training ----------------------------------
 laser_mod = LinnModel()
 laser_mod.set_training_data(training_inputs=inputs, training_outputs=corrections)
 out_dim = corrections.shape[1]
-model_definition = [(32, 'softsign'), (32, 'softsign'), (out_dim, 'linear')]
+model_definition = MODEL_DEFINITION + [(out_dim, 'linear')]
 laser_mod.construct_model(model_definition, show_summary=True, metrics=['mae'])
-history = laser_mod.fit_model(epochs=500, es_config={'patience':25, 'restore':True}, validation_split=0.1)
+history = laser_mod.fit_model(epochs=EPOCHS, es_config={'patience': 25, 'restore': True},
+                              validation_split=0.1)
 
-# Average difference between val loss and loss at the end
+# Lowest loss and the average val_loss - loss gap over the last 25 epochs
 loss = np.array(history.history['loss'])
 val_loss = np.array(history.history['val_loss'])
-gap = val_loss[-25:] - loss[-25:]
-avg_gap = np.mean(gap)
+avg_gap = np.mean(val_loss[-25:] - loss[-25:])
 min_loss = min(loss)
-
 print(f'Minimum loss: {min_loss:.4f}')
 print(f'Average (val_loss - loss): {avg_gap:.4f}')
 
 # Same for MAE: lowest MAE and the average val_mae - mae gap
 mae = np.array(history.history['mae'])
 val_mae = np.array(history.history['val_mae'])
-mae_gap = val_mae[-25:] - mae[-25:]
-avg_mae_gap = np.mean(mae_gap)
+avg_mae_gap = np.mean(val_mae[-25:] - mae[-25:])
 min_mae = min(mae)
-
 print(f'Minimum MAE: {min_mae:.4f}')
 print(f'Average (val_mae - mae): {avg_mae_gap:.4f}')
 
-# plot the loss and validation loss as a function of epoch to see how our training went
+# Plot loss/MAE vs epoch to see how training went
 plt.semilogy(loss)
 plt.semilogy(mae)
 plt.plot(val_loss)
@@ -67,58 +77,32 @@ plt.xlabel('Epochs')
 plt.savefig('loss_and_mae.png', dpi=150, bbox_inches='tight')
 plt.show()
 
-# ----------------------------------------Second set of data to test on------------------------------------------
+# ---------------------------------- Test on a held-out scan ----------------------------------
+inputs, corrections = generate_samples(TEST_SCAN, n_samples, moves)
+preds = laser_mod.predict(inputs, scale=True, unscale_output=True)
 
-# Test on a different beam scan to gauge generalization
-inputs, corrections = generate_samples(
-    r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris1.0.npz',
-    n_samples, moves
-)
-
-preds = laser_mod.predict(inputs, scale=True, unscale_output=True) # The golden line
-
-# -----------------------------------------------------CLAUDE ASSISTED GRAPHING-------------------------------------------------
-
-# Both generators encode one of four directions (+x, -x, +y, -y); they just
-# package it differently, so decode each into the same 0-3 labels:
-#   2 columns -> ThreeMoveSamples: the [x, y] unit vector gives the direction directly.
-#   1 column  -> XYMoveSamples:    a signed scalar along the axis perpendicular to the
-#                                  last move; that axis is axis[0], stored in inputs[:, 1].
+# ---------------------------------- Diagnostic plots ----------------------------------
 preds = np.asarray(preds)
 corrections = np.asarray(corrections)
 
 direction_names = ['+x', '-x', '+y', '-y']
 
-def vec_to_label(vec):
-    # Unit vector [x, y] -> direction label 0-3.
-    if abs(vec[0]) > abs(vec[1]):
-        return 0 if vec[0] > 0 else 1   # +x or -x
-    else:
-        return 2 if vec[1] > 0 else 3   # +y or -y
-
 def scalar_to_label(scalar, last_axis):
-    # Signed scalar along the axis perpendicular to the most recent move.
+    # Signed correction scalar along the axis perpendicular to the most recent move
     if last_axis == 0:                  # last move was X -> correction is along Y
         return 2 if scalar > 0 else 3   # +y or -y
     else:                               # last move was Y -> correction is along X
         return 0 if scalar > 0 else 1   # +x or -x
 
-# This script trains on generate_samples (XYMoveSamples), whose correction is
-# [direction_sign, step_size]: column 0 is the signed move along the axis
-# perpendicular to the last move (axis[0], stored in inputs[:, 1]), and
-# column 1 is the step size. Decode the *direction* from the sign in column 0 via
-# scalar_to_label. (vec_to_label only applies to ThreeMoveSamples, whose
-# correction is a genuine [x, y] unit vector -- feeding it [sign, step_size]
-# makes every sample read as +y, since step_size dominates and is never negative.)
+# Correction is [direction_sign, step_size]; column 0's sign gives the direction.
 last_axes = inputs[:, 1].astype(int)   # axis[0]: the most recent move
 pred_labels = np.array([scalar_to_label(p[0], a) for p, a in zip(preds, last_axes)])
 true_labels = np.array([scalar_to_label(c[0], a) for c, a in zip(corrections, last_axes)])
 
 accuracy = np.mean(pred_labels == true_labels) * 100
-
 n_classes = len(direction_names)
 
-# Build confusion matrix manually
+# Build the confusion matrix manually
 conf = np.zeros((n_classes, n_classes), dtype=int)
 for t, p in zip(true_labels, pred_labels):
     conf[t][p] += 1
@@ -134,8 +118,7 @@ axes[0].set_yticklabels(direction_names)
 axes[0].set_xlabel('Predicted')
 axes[0].set_ylabel('True')
 axes[0].set_title(f'Confusion Matrix  —  Overall accuracy: {accuracy:.1f}%')
-# Annotate each cell with the count and its share of the true row, in a colour
-# that stays readable on both light and dark cells.
+# Annotate each cell with the count and its share of the true row
 for i in range(n_classes):
     row_total = conf[i].sum()
     for j in range(n_classes):
@@ -145,7 +128,7 @@ for i in range(n_classes):
                      fontsize=11, color=color)
 fig.colorbar(im, ax=axes[0])
 
-# Right: per-direction accuracy bar chart
+# Middle: per-direction accuracy bar chart
 per_dir = [conf[i, i] / conf[i].sum() * 100 if conf[i].sum() > 0 else 0
            for i in range(n_classes)]
 colors = ['green' if a >= 50 else 'red' for a in per_dir]
@@ -158,24 +141,20 @@ axes[1].set_ylabel('Accuracy (%)')
 axes[1].set_title('Accuracy per Direction')
 axes[1].grid(axis='y', alpha=0.3)
 axes[1].set_axisbelow(True)
-# Label each bar with its accuracy and how many test samples it covers.
+# Label each bar with its accuracy and test-sample count
 for bar, acc, i in zip(bars, per_dir, range(n_classes)):
     axes[1].text(bar.get_x() + bar.get_width() / 2, acc + 1,
                  f'{acc:.0f}%\n(n={conf[i].sum()})', ha='center', va='bottom',
                  fontsize=9)
 axes[1].legend()
 
-# Right: the step size the model picks vs. how far off-center the beam actually
-# is. The target step is a damped fraction of the offset (step = offset / 3.5),
-# so the x-axis is the real distance from center (correction step * 3.5) while
-# the y-axis stays in the model's step-size units. With thousands of samples a
-# raw scatter saturates into a blob, so show the point density (hexbin) and
-# overlay the binned median chosen step with a 10-90% band: the median tracking
-# the dashed line means the model scales its step with distance, and the band
-# width shows how consistent that choice is at each distance.
-DAMPING = 3.5   # correction step -> actual steps from center
-true_center = corrections[:, 1] * DAMPING      # actual steps from center (x)
-pred_steps = preds[:, 1]                        # step size the model picks (y)
+# Right: chosen step size vs. actual distance from center.
+# Target step is a damped fraction of the offset (step = offset / DAMPING), so the
+# x-axis is the real distance (correction step * DAMPING). Hexbin shows density;
+# the green line/band is the binned median step with a 10-90% spread.
+DAMPING = 4
+true_center = corrections[:, 1] * DAMPING   # actual steps from center (x)
+pred_steps = preds[:, 1]                     # step size the model picks (y)
 step_mae = np.mean(np.abs(pred_steps - corrections[:, 1]))
 
 hi_x = true_center.max()
@@ -199,7 +178,7 @@ for b in range(n_bins):
 axes[2].fill_between(centers, p10, p90, color='green', alpha=0.3, label='10–90% band')
 axes[2].plot(centers, med, color='green', label='Median chosen step')
 
-axes[2].plot([0, hi_x], [0, hi_x / DAMPING], 'k--', label='Perfect (offset / 3.5)')
+axes[2].plot([0, hi_x], [0, hi_x / DAMPING], 'k--', label=f'Perfect (offset / {DAMPING})')
 axes[2].set_xlim(0, hi_x)
 axes[2].set_ylim(0, hi_y)
 axes[2].grid(alpha=0.3)
@@ -217,6 +196,5 @@ for i, name in enumerate(direction_names):
     print(f'  {name}: {per_dir[i]:.1f}%')
 print(f'Step-size MAE: {step_mae:.2f}')
 
-
-laser_mod.model.save_weights('laser.weights.h5')
+laser_mod.model.save_weights(WEIGHTS_OUT)
 print('Weights saved')

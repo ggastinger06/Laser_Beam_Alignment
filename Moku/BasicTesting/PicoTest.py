@@ -1,9 +1,12 @@
 import serial
 import time
 
+import os
 import sys
-sys.path.append(r'c:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust')
-import picoMotor as pico 
+# picoMotor lives in the sibling Neural Network project; add it to the path relative to this file
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             '..', '..', 'Neural Network', 'MultiAdjust'))
+import picoMotor as pico
 
 # ALL COMMANDS ARE FOUND IN PAGE 57 of https://experimentationlab.berkeley.edu/sites/default/files/JoystickManual.pdf
 
@@ -194,4 +197,4 @@ else:
         print('No signal - Scanning')
     """    
 
-pico.cleanup
+pico.cleanup()
