@@ -104,7 +104,7 @@ try:
             data = osc.get_data()
             avg = sum(data['ch1'])/len(data['ch1'])
 
-            power.append(avg*6.44) # Analog input x6.455 for Watts
+            power.append(avg*6.45) # Analog input x6.455 for Watts
             x_scan.append(pos)
             y_scan.append(y_steps)
 

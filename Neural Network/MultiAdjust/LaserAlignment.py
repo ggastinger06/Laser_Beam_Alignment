@@ -6,7 +6,7 @@ from moku.nn import LinnModel
 from XYMoveSamples import generate_samples
 
 # Amount of random cursors to simulate with
-n_samples = 5000
+n_samples = 20000
 moves = 4 # Length of the move history
 
 # Seed both RNGs so the training data is reproducible. Must match the SEED in PhysicalAlignment.py.
@@ -26,12 +26,12 @@ TRAIN_SCANS = [
     r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris2.1.npz',
     r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_att.npz',
 ]
-mod_counts, corrections = generate_samples(TRAIN_SCANS, n_samples, moves)
+inputs, corrections = generate_samples(TRAIN_SCANS, n_samples, moves)
 
 # -----------------------------------------------------------TRAINING--------------------------------------------------------
 #optimizer = tf128.keras.optimizers.Adam(learning_rate=.005)
 laser_mod = LinnModel()
-laser_mod.set_training_data(training_inputs=mod_counts, training_outputs=corrections)
+laser_mod.set_training_data(training_inputs=inputs, training_outputs=corrections)
 out_dim = corrections.shape[1]
 model_definition = [(32, 'softsign'), (32, 'softsign'), (out_dim, 'linear')]
 laser_mod.construct_model(model_definition, show_summary=True, metrics=['mae'])
@@ -70,12 +70,12 @@ plt.show()
 # ----------------------------------------Second set of data to test on------------------------------------------
 
 # Test on a different beam scan to gauge generalization
-mod_counts, corrections = generate_samples(
+inputs, corrections = generate_samples(
     r'C:\Users\grant\Downloads\Summer Internship\Neural Network\MultiAdjust\scan_data_iris1.0.npz',
     n_samples, moves
 )
 
-preds = laser_mod.predict(mod_counts, scale=True, unscale_output=True) # The golden line
+preds = laser_mod.predict(inputs, scale=True, unscale_output=True) # The golden line
 
 # -----------------------------------------------------CLAUDE ASSISTED GRAPHING-------------------------------------------------
 
@@ -83,7 +83,7 @@ preds = laser_mod.predict(mod_counts, scale=True, unscale_output=True) # The gol
 # package it differently, so decode each into the same 0-3 labels:
 #   2 columns -> ThreeMoveSamples: the [x, y] unit vector gives the direction directly.
 #   1 column  -> XYMoveSamples:    a signed scalar along the axis perpendicular to the
-#                                  last move; that axis is axis[0], stored in mod_counts[:, 1].
+#                                  last move; that axis is axis[0], stored in inputs[:, 1].
 preds = np.asarray(preds)
 corrections = np.asarray(corrections)
 
@@ -105,12 +105,12 @@ def scalar_to_label(scalar, last_axis):
 
 # This script trains on generate_samples (XYMoveSamples), whose correction is
 # [direction_sign, step_size]: column 0 is the signed move along the axis
-# perpendicular to the last move (axis[0], stored in mod_counts[:, 1]), and
+# perpendicular to the last move (axis[0], stored in inputs[:, 1]), and
 # column 1 is the step size. Decode the *direction* from the sign in column 0 via
 # scalar_to_label. (vec_to_label only applies to ThreeMoveSamples, whose
 # correction is a genuine [x, y] unit vector -- feeding it [sign, step_size]
 # makes every sample read as +y, since step_size dominates and is never negative.)
-last_axes = mod_counts[:, 1].astype(int)   # axis[0]: the most recent move
+last_axes = inputs[:, 1].astype(int)   # axis[0]: the most recent move
 pred_labels = np.array([scalar_to_label(p[0], a) for p, a in zip(preds, last_axes)])
 true_labels = np.array([scalar_to_label(c[0], a) for c, a in zip(corrections, last_axes)])
 
@@ -134,42 +134,59 @@ axes[0].set_yticklabels(direction_names)
 axes[0].set_xlabel('Predicted')
 axes[0].set_ylabel('True')
 axes[0].set_title(f'Confusion Matrix  —  Overall accuracy: {accuracy:.1f}%')
+# Annotate each cell with the count and its share of the true row, in a colour
+# that stays readable on both light and dark cells.
 for i in range(n_classes):
+    row_total = conf[i].sum()
     for j in range(n_classes):
-        axes[0].text(j, i, conf[i, j], ha='center', va='center', fontsize=12)
+        pct = conf[i, j] / row_total * 100 if row_total else 0
+        color = 'white' if conf[i, j] > conf.max() / 2 else 'black'
+        axes[0].text(j, i, f'{conf[i, j]}\n{pct:.0f}%', ha='center', va='center',
+                     fontsize=11, color=color)
 fig.colorbar(im, ax=axes[0])
 
 # Right: per-direction accuracy bar chart
 per_dir = [conf[i, i] / conf[i].sum() * 100 if conf[i].sum() > 0 else 0
            for i in range(n_classes)]
 colors = ['green' if a >= 50 else 'red' for a in per_dir]
-axes[1].bar(direction_names, per_dir, color=colors)
+bars = axes[1].bar(direction_names, per_dir, color=colors)
 chance = 100 / n_classes
 axes[1].axhline(chance, color='gray', linestyle='--', label=f'Random chance ({chance:.0f}%)')
-axes[1].set_ylim(0, 100)
+axes[1].set_ylim(0, 105)
 axes[1].set_xlabel('Direction')
 axes[1].set_ylabel('Accuracy (%)')
 axes[1].set_title('Accuracy per Direction')
+axes[1].grid(axis='y', alpha=0.3)
+axes[1].set_axisbelow(True)
+# Label each bar with its accuracy and how many test samples it covers.
+for bar, acc, i in zip(bars, per_dir, range(n_classes)):
+    axes[1].text(bar.get_x() + bar.get_width() / 2, acc + 1,
+                 f'{acc:.0f}%\n(n={conf[i].sum()})', ha='center', va='bottom',
+                 fontsize=9)
 axes[1].legend()
 
-# Right: predicted vs. true step size (the move magnitude, column 1 of the
-# correction). With thousands of samples spread across many spawn positions a
+# Right: the step size the model picks vs. how far off-center the beam actually
+# is. The target step is a damped fraction of the offset (step = offset / 3.5),
+# so the x-axis is the real distance from center (correction step * 3.5) while
+# the y-axis stays in the model's step-size units. With thousands of samples a
 # raw scatter saturates into a blob, so show the point density (hexbin) and
-# overlay the binned median prediction with a 10-90% band: the median tracking
-# the dashed line means the model recovers the magnitude, and the band width
-# shows how consistent it is at each true step size.
-true_steps = corrections[:, 1]
-pred_steps = preds[:, 1]
-step_mae = np.mean(np.abs(pred_steps - true_steps))
+# overlay the binned median chosen step with a 10-90% band: the median tracking
+# the dashed line means the model scales its step with distance, and the band
+# width shows how consistent that choice is at each distance.
+DAMPING = 3.5   # correction step -> actual steps from center
+true_center = corrections[:, 1] * DAMPING      # actual steps from center (x)
+pred_steps = preds[:, 1]                        # step size the model picks (y)
+step_mae = np.mean(np.abs(pred_steps - corrections[:, 1]))
 
-hi = max(true_steps.max(), pred_steps.max())
-hb = axes[2].hexbin(true_steps, pred_steps, gridsize=40, cmap='Blues',
-                    extent=(0, hi, 0, hi), mincnt=1)
+hi_x = true_center.max()
+hi_y = max(pred_steps.max(), hi_x / DAMPING)
+hb = axes[2].hexbin(true_center, pred_steps, gridsize=40, cmap='Blues',
+                    extent=(0, hi_x, 0, hi_y), mincnt=1)
 fig.colorbar(hb, ax=axes[2], label='Samples')
 
 n_bins = 20
-bin_edges = np.linspace(0, true_steps.max(), n_bins + 1)
-bin_idx = np.clip(np.digitize(true_steps, bin_edges) - 1, 0, n_bins - 1)
+bin_edges = np.linspace(0, hi_x, n_bins + 1)
+bin_idx = np.clip(np.digitize(true_center, bin_edges) - 1, 0, n_bins - 1)
 centers, med, p10, p90 = [], [], [], []
 for b in range(n_bins):
     in_bin = pred_steps[bin_idx == b]
@@ -180,14 +197,15 @@ for b in range(n_bins):
     p10.append(np.percentile(in_bin, 10))
     p90.append(np.percentile(in_bin, 90))
 axes[2].fill_between(centers, p10, p90, color='green', alpha=0.3, label='10–90% band')
-axes[2].plot(centers, med, color='green', label='Median prediction')
+axes[2].plot(centers, med, color='green', label='Median chosen step')
 
-axes[2].plot([0, hi], [0, hi], 'k--', label='Perfect prediction')
-axes[2].set_xlim(0, hi)
-axes[2].set_ylim(0, hi)
-axes[2].set_xlabel('True step size')
+axes[2].plot([0, hi_x], [0, hi_x / DAMPING], 'k--', label='Perfect (offset / 3.5)')
+axes[2].set_xlim(0, hi_x)
+axes[2].set_ylim(0, hi_y)
+axes[2].grid(alpha=0.3)
+axes[2].set_xlabel('Actual steps from center')
 axes[2].set_ylabel('Predicted step size')
-axes[2].set_title(f'Step Size  —  MAE: {step_mae:.2f}')
+axes[2].set_title(f'Chosen Step vs Distance  —  MAE: {step_mae:.2f} steps')
 axes[2].legend()
 
 plt.tight_layout()
