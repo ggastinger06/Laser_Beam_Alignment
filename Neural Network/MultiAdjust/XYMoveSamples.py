@@ -337,12 +337,12 @@ def _generate_from_scan(npz_path, n_samples, moves, min_power_frac=0.005,
         coord = y if axis[0] == 0 else x
 
         if axis[0] == 0:  # This move is Y
-            steps = abs(y)/3.5
+            steps = abs(y)/4
         else:  # This move is X
-            steps = abs(x)/3.5
+            steps = abs(x)/4
 
-        if steps < 15: # Can't read gradient under 15
-            steps = 15
+        if steps < 10: # Can't read gradient under 15
+            steps = 10
         corrections[i][1] = steps
 
         # Direction toward center (0,0) along THIS move's axis.

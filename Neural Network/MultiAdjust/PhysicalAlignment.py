@@ -2,6 +2,7 @@ from moku.instruments import Oscilloscope
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 import time
 
 from moku.nn import LinnModel
@@ -20,7 +21,9 @@ SEED = 7 # Keep the same as Laser Alignment
 np.random.seed(SEED)
 random.seed(SEED)
 
-osc = Oscilloscope('192.168.73.1', force_connect=True) #IP Address
+# Not a frisbee Moku
+# osc = Oscilloscope('192.168.73.1', force_connect=True) #IP Address for Wifi 
+osc = Oscilloscope('192.168.1.167', force_connect=True) #IP Address for Ethernet
 
 # ----------------------------------------------------This rebuilds the model with the saved weights---------------------------
 
@@ -88,7 +91,7 @@ def look_for_signal():
             """
 
             # Check before each move so a beam crossing isn't skipped mid-leg.
-            if search_power >= .025:   # Found the beam
+            if search_power >= .05:   # Found the beam
                 velocity = 100
                 send(f'vel a{driver} 0={velocity}')
                 send(f'vel a{driver} 1={velocity}')
@@ -148,7 +151,7 @@ def plot_path():
     ax.plot(X, Y, '-', color='gray', linewidth=2, zorder=1)
     # Colour each visited location by the power measured there
     sc = ax.scatter(X, Y, c=P, cmap='viridis', s=45, zorder=2)
-    plt.colorbar(sc, ax=ax, label='power')
+    plt.colorbar(sc, ax=ax, label='Power (mW)')
     ax.scatter(X[0], Y[0], color='black', s=90, zorder=3, label='start')
     ax.scatter(X[-1], Y[-1], color='yellow', s=90, zorder=3, label='current')
     ax.legend(loc='best')
@@ -191,14 +194,17 @@ def plot_iris_power():
         ax.set_ylabel('Power (mW)')
         ax.grid(alpha=.3)
         if ks:
-            ax.set_xticks(range(1, len(ks) + 1))
+            # Cap the number of x-ticks so the iteration labels don't bunch up
+            # when there are many cycles; keep them integer-valued.
+            ax.set_xlim(0.5, len(ks) + 0.5)
+            ax.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True))
 
     legend = [Line2D([], [], ls='', marker='o', color=MAROON, ms=9, label='Start'),
               Line2D([], [], color=ORANGE, lw=4, label='Neural Network')]
     fig.legend(handles=legend, loc='upper center', ncol=2, frameon=True,
                bbox_to_anchor=(0.5, 0.92))   # key above the panels, out of the way
 
-    fig.suptitle('Iris Power During Alignment', y=0.99)
+    fig.suptitle('Iris Power During Alignment', y=0.97)
 
     # Elapsed time box: starts when the motor first moved (t_start) and, on the
     # final call from the stop condition, reflects the time at convergence.
@@ -277,7 +283,8 @@ try:
     xy_start()
     reset()
 
-    peak = 0 
+    peak = 0
+    threshhold = .5
 
     percentage = .025
 
@@ -294,8 +301,10 @@ try:
 
         if driver == 1:
             ratio = [1.84, 1.00, 1.53, 1.01] # [+X, +Y, -X, -Y]
+            if len(iris1start) >= 2: threshhold = iris1start[len(iris1start) - 1]
         elif driver == 2:
             ratio = [1.39, 1.00, 1.46, 1.12] # [+X, +Y, -X, -Y]
+            if len(iris2start) >= 2: threshhold = iris2start[len(iris2start) - 1]
         
         current_power = read_power(driver)
         time.sleep(.1)
@@ -342,7 +351,7 @@ try:
         pwr =       [current_power, pwr[0],       pwr[1],       pwr[2]]
 
         
-        if (((max(pwr) - min(pwr)) <= percentage*peak) and (min(pwr) > .5) or (len(Xmoves) > 50)): # Convergence condition
+        if (((max(pwr) - min(pwr)) <= percentage*peak) and (min(pwr) > threshhold*(1 - percentage)) or (len(Xmoves) > 50)): # Convergence condition
 
             if driver == 1: iris1end.append(read_power(driver))
             else: iris2end.append(read_power(driver))
@@ -363,13 +372,12 @@ try:
 
             plot_iris_power()
 
-            # STOP CONDITION
-            if len(iris1end) >= 3 and len(iris2end) >= 3:
-                iris1last = iris1end[-3:]
-                iris2last = iris2end[-3:]
-                if ((max(iris1last) - min(iris1last) <= percentage * iris1end[-1])
-                and (max(iris2last) - min(iris2last) <= percentage * iris2end[-1])):
+            # STOP CONDITION --> If the neural network's improvement (end - start) over the last three iris 2 iterations is below the threshold
+            if len(iris2end) >= 3:
+                improvements = [e - s for s, e in zip(iris2start[-3:], iris2end[-3:])]
+                if max(improvements) < 2*percentage*(iris2end[-1]):
                     plot_iris_power()   # final redraw so the time box ends at the stop condition
+                    print("LASER BEAM ALIGNMENT IS COMPLETE")
                     cleanup()
                     osc.relinquish_ownership()
                     break
@@ -382,7 +390,7 @@ try:
             peak = current_power
         print(f'The peak power so far is {peak:.2f}')
 
-        if max(pwr) < percentage:
+        if max(pwr) < .05:
             look_for_signal()   
 
         # This block normalizes the steps based on their known offsets
