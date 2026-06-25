@@ -41,13 +41,13 @@ WEIGHTS_FILE = 'laser.weights.h5'
 
 START_DRIVER = 1     # which mirror to align first (1 or 2)
 VELOCITY = 100       # motor velocity during alignment
-TIMEBASE = 0.001     # oscilloscope window: +-0.001 s around the trigger
-PERCENTAGE = 0.025   # convergence tolerance (fraction of peak power)
+TIMEBASE = 0.005     # oscilloscope window: +-0.005 s around the trigger
+PERCENTAGE = 0.03   # convergence tolerance (fraction of peak power)
 
 # Per-mirror direction calibration [+X, +Y, -X, -Y], equalizing physical
-# distance per direction. Re-measure these if the rig geometry changes.
+# distance per direction. They are measured normal to Y+
 RATIOS = {
-    1: [1.84, 1.00, 1.53, 1.01],
+    1: [1.74, 1.00, 1.53, 1.01],
     2: [1.39, 1.00, 1.46, 1.12],
 }
 # ===========================================================================
@@ -73,7 +73,7 @@ laser_mod.model.load_weights(WEIGHTS_FILE)
 
 def read_power(driver):
     data = osc.get_data()
-    return sum(data[f'ch{driver}']) / len(data[f'ch{driver}']) * 6.455   # multiplier to get power
+    return sum(data[f'ch{driver}']) / len(data[f'ch{driver}']) * 6.45   # multiplier to get power
 
 def look_for_signal():
     # Expanding spiral search until the beam is found. legs: (axis, direction,
@@ -298,8 +298,10 @@ try:
 
         ratio = RATIOS[driver]   # [+X, +Y, -X, -Y]
         if driver == 1 and len(iris1start) >= 2:
+            peak = iris1start[-1]
             threshhold = iris1start[-1]
         elif driver == 2 and len(iris2start) >= 2:
+            peak = iris2start[-1]
             threshhold = iris2start[-1]
 
         current_power = read_power(driver)
@@ -342,8 +344,8 @@ try:
         step_size = [step,          step_size[0], step_size[1], step_size[2]]
         pwr =       [current_power, pwr[0],       pwr[1],       pwr[2]]
 
-        # Convergence condition: power history is flat near the threshold, or move cap hit
-        if (((max(pwr) - min(pwr)) <= percentage * peak) and (min(pwr) > threshhold * (1 - percentage))
+        # Convergence condition: The power gradient is flat, power is above a threshold, and the last move increased power
+        if (((max(pwr) - min(pwr)) <= percentage * peak) and (min(pwr) > (threshhold * (1 - percentage))) and (pwr[0] >= pwr[1])
                 or (len(Xmoves) > 50)):
 
             if driver == 1:
@@ -365,12 +367,11 @@ try:
 
             plot_iris_power()
 
-            # STOP CONDITION: if the model's improvement (end - start) over the last
-            # three iris-2 iterations is below the threshold, alignment is done.
-            if len(iris2end) >= 3:
+            # STOP CONDITION: if the model's improvement (end - start) over the last three iris-2 iterations is below the threshold, alignment is done.
+            if len(iris2end) >= 3 and len(iris2start) == len(iris2end):
                 improvements = [e - s for s, e in zip(iris2start[-3:], iris2end[-3:])]
-                if max(improvements) < 2 * percentage * (iris2end[-1]):
-                    plot_iris_power()   # final redraw so the time box ends at the stop condition
+                if max(improvements) < 1.5 * percentage * (iris2end[-1]): 
+                    plot_iris_power()   
                     print("LASER BEAM ALIGNMENT IS COMPLETE")
                     cleanup()
                     osc.relinquish_ownership()
