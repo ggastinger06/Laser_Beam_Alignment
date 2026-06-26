@@ -6,6 +6,7 @@
 !/Neural Network/
 !/.gitignore
 !/README.md
+!/requirements.txt
 
 # Python virtual environments
 .venv/

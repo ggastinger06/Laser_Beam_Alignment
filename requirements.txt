@@ -1,0 +1,7 @@
+moku
+tensorflow
+matplotlib
+numpy
+scipy
+tqdm
+pyserial
