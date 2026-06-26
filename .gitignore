@@ -2,11 +2,17 @@
 /*
 
 # ...except the two project folders and repo files
+!/README.md
+!/requirements
 !/Moku/
 !/Neural Network/
 !/.gitignore
+<<<<<<< HEAD
 !/README.md
 !/requirements.txt
+=======
+
+>>>>>>> 3e1bed69ae97d59a149ca83fed827f1465e7ace4
 
 # Python virtual environments
 .venv/
