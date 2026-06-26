@@ -3,7 +3,7 @@
 
 # ...except the two project folders and repo files
 !/README.md
-!/requirements.txt
+!/requirements
 !/Moku/
 !/Neural Network/
 !/.gitignore
