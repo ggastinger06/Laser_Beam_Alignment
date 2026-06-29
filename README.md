@@ -22,7 +22,7 @@ A small library that contains common picoMotor functions
 ### picoTest.py            
 A set of examples that show how the picoMotors can be used
 
-## STOP.py                
+### STOP.py                
 Emergency stop for the picomotors that restores all hardware to a safe state
 
 
