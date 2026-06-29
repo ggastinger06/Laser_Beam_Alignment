@@ -1,18 +1,29 @@
 # Laser Beam Alignment
 
-A trained neural network that is able to align a laser beam to the center of two irises with 50 micrometer precision.
+A trained neural network that is able to align a laser beam to the center of two irises with 15 micrometer precision.
 
-The important files in this project are:
+## The important files in this project are:
 
-RasterScan.py          --> Strafes a laser over an iris with a power meter behind it to create a scan of the laser power with a certain iris
-XYMoveSamples.py       --> Takes scan data files as inputs and creates an efficient training set based on them
-LaserAlignment.py      --> Trains the network based on samples created by XYMoveSamples
-PhysicalAlignment.py   --> Uses the trained neural network to align a laser between two irises
+### RasterScan.py          
+Drives the picomotors in a raster scan in order to get data to generate samples from
 
-picoMotor.py           --> A library for all standard picoMotor functions
-picoTest.py            --> A set of examples that show how the picoMotors work
-STOP.py                --> Emergency cancel for the picomotors that also resets the joystick
+### XYMoveSamples.py       
+Creates a set of samples to train on given a set of raster scans
 
-Everything else was either used to get to this point or has a non-necessary function
+### LaserAlignment.py      
+Trains the model with data from XYMoveSamples in order to find ideal weights
+
+### PhysicalAlignment.py   
+Rebuilds the model given a weights file and uses the model to continously improve laser position until the convergence condition is met
+
+### picoMotor.py          
+A small library that contains common picoMotor functions
+
+### picoTest.py            
+A set of examples that show how the picoMotors can be used
+
+## STOP.py                
+Emergency stop for the picomotors that restores all hardware to a safe state
+
 
 
